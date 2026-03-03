@@ -1,3 +1,4 @@
+import { consumeRootOptionToken } from "../../infra/cli-root-options.js";
 import { defaultRuntime } from "../../runtime.js";
 import { getFlagValue, getPositiveIntFlagValue, getVerboseFlag, hasFlag } from "../argv.js";
 
@@ -99,16 +100,6 @@ const routeMemoryStatus: RouteSpec = {
   },
 };
 
-function isValueToken(arg: string | undefined): boolean {
-  if (!arg || arg === "--") {
-    return false;
-  }
-  if (!arg.startsWith("-")) {
-    return true;
-  }
-  return /^-\d+(?:\.\d+)?$/.test(arg);
-}
-
 function getCommandPositionals(argv: string[]): string[] {
   const out: string[] = [];
   const args = argv.slice(2);
@@ -119,17 +110,9 @@ function getCommandPositionals(argv: string[]): string[] {
       break;
     }
     if (!commandStarted) {
-      if (arg.startsWith("--profile=") || arg.startsWith("--log-level=")) {
-        continue;
-      }
-      if (arg === "--dev" || arg === "--no-color") {
-        continue;
-      }
-      if (arg === "--profile" || arg === "--log-level") {
-        const next = args[i + 1];
-        if (isValueToken(next)) {
-          i += 1;
-        }
+      const consumed = consumeRootOptionToken(args, i);
+      if (consumed > 0) {
+        i += consumed - 1;
         continue;
       }
     }

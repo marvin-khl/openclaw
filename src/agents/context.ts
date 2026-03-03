@@ -3,6 +3,7 @@
 
 import { loadConfig } from "../config/config.js";
 import type { OpenClawConfig } from "../config/config.js";
+import { consumeRootOptionToken, FLAG_TERMINATOR } from "../infra/cli-root-options.js";
 import { resolveOpenClawAgentDir } from "./agent-paths.js";
 import { ensureOpenClawModelsJson } from "./models-config.js";
 
@@ -69,40 +70,17 @@ const MODEL_CACHE = new Map<string, number>();
 let loadPromise: Promise<void> | null = null;
 let configuredWindowsPrimed = false;
 
-function isValueToken(arg: string | undefined): boolean {
-  if (!arg || arg === "--") {
-    return false;
-  }
-  if (!arg.startsWith("-")) {
-    return true;
-  }
-  return /^-\d+(?:\.\d+)?$/.test(arg);
-}
-
 function getCommandPathFromArgv(argv: string[]): string[] {
   const args = argv.slice(2);
   const tokens: string[] = [];
-  let skipNextAsRootValue = false;
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
-    if (!arg || arg === "--") {
+    if (!arg || arg === FLAG_TERMINATOR) {
       break;
     }
-    if (skipNextAsRootValue) {
-      skipNextAsRootValue = false;
-      continue;
-    }
-    if (arg === "--profile" || arg === "--log-level") {
-      const next = args[i + 1];
-      skipNextAsRootValue = isValueToken(next);
-      continue;
-    }
-    if (
-      arg === "--dev" ||
-      arg === "--no-color" ||
-      arg.startsWith("--profile=") ||
-      arg.startsWith("--log-level=")
-    ) {
+    const consumed = consumeRootOptionToken(args, i);
+    if (consumed > 0) {
+      i += consumed - 1;
       continue;
     }
     if (arg.startsWith("-")) {
