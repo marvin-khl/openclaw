@@ -36,6 +36,9 @@ type WritableStdin = {
   write: (data: string, cb?: (err?: Error | null) => void) => void;
   end: () => void;
   destroyed?: boolean;
+  writable?: boolean;
+  writableEnded?: boolean;
+  writableFinished?: boolean;
 };
 const DEFAULT_LOG_TAIL_LINES = 200;
 
@@ -149,7 +152,19 @@ export function createProcessTool(
     !scopeKey || session?.scopeKey === scopeKey;
   const resolveStdinWritable = (session: ProcessSession) => {
     const stdin = session.stdin ?? session.child?.stdin;
-    return Boolean(stdin && !stdin.destroyed);
+    if (!stdin || stdin.destroyed) {
+      return false;
+    }
+    if ("writable" in stdin && stdin.writable === false) {
+      return false;
+    }
+    if ("writableEnded" in stdin && stdin.writableEnded === true) {
+      return false;
+    }
+    if ("writableFinished" in stdin && stdin.writableFinished === true) {
+      return false;
+    }
+    return true;
   };
   const describeRunningSession = (session: ProcessSession) => {
     const record = supervisor.getRecord(session.id);
@@ -164,12 +179,19 @@ export function createProcessTool(
       idleMs,
     };
   };
-  const buildInputWaitHint = (hints: { waitingForInput: boolean; idleMs: number }) => {
+  const buildInputWaitHint = (
+    hints: { waitingForInput: boolean; idleMs: number },
+    opts?: { attachContext?: boolean },
+  ) => {
     if (!hints.waitingForInput) {
       return "";
     }
     const idleLabel = formatDurationCompact(hints.idleMs) ?? `${Math.round(hints.idleMs / 1000)}s`;
-    return `\n\nNo new output for ${idleLabel}; this session may be waiting for input. Use process attach, then process write/send-keys/submit to continue.`;
+    const summary = `\n\nNo new output for ${idleLabel}; this session may be waiting for input.`;
+    if (opts?.attachContext) {
+      return summary;
+    }
+    return `${summary} Use process attach, then process write/send-keys/submit to continue.`;
   };
 
   const cancelManagedSession = (sessionId: string) => {
@@ -312,13 +334,13 @@ export function createProcessTool(
             result: failedResult(`Session ${params.sessionId} is not backgrounded.`),
           };
         }
-        const stdin = scopedSession.stdin ?? scopedSession.child?.stdin;
-        if (!stdin || stdin.destroyed) {
+        if (!resolveStdinWritable(scopedSession)) {
           return {
             ok: false as const,
             result: failedResult(`Session ${params.sessionId} stdin is not writable.`),
           };
         }
+        const stdin = scopedSession.stdin ?? scopedSession.child?.stdin;
         return { ok: true as const, session: scopedSession, stdin: stdin as WritableStdin };
       };
 
@@ -360,9 +382,9 @@ export function createProcessTool(
               window.effectiveLimit,
             );
             const logDefaultTailNote = defaultTailNote(totalLines, window.usingDefaultTail);
-            const waitingHint = buildInputWaitHint(runtime);
+            const waitingHint = buildInputWaitHint(runtime, { attachContext: true });
             const controlHint = runtime.stdinWritable
-              ? "\n\nInteractive controls: process write, process send-keys, process submit."
+              ? "\n\nUse process write, send-keys, or submit to provide input."
               : "";
             return {
               content: [
